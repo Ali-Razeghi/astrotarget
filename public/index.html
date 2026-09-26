@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AstroTarget</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#1b2430;background:#f7f9fb}
+ h1{margin-bottom:0} .sub{color:#5b6b7a;margin-top:.2rem}
+ input,button{font-size:1rem;padding:.5rem} input{width:60%}
+ button{cursor:pointer;background:#2c6fbb;color:#fff;border:0;border-radius:4px;padding:.55rem 1rem}
+ button:disabled{opacity:.5;cursor:default}
+ pre{background:#0f1720;color:#d7e3ef;padding:1rem;border-radius:6px;overflow:auto;font-size:.8rem}
+ .card{background:#fff;border:1px solid #e1e7ec;border-radius:8px;padding:1rem;margin-top:1rem}
+ .links a{margin-right:1rem}
+ #status{margin-top:.6rem;color:#5b6b7a}
+</style>
+</head>
+<body>
+<h1>AstroTarget</h1>
+<p class="sub">Research-oriented exoplanet target intelligence — NASA Exoplanet Archive + Gaia DR3 + TESS/MAST</p>
+
+<div>
+  <input id="name" placeholder="e.g. WASP-12 b" />
+  <button id="go">Analyze</button>
+  <div style="margin-top:.6rem"><input id="apikey" type="password" placeholder="API key (only if configured)" /></div>
+</div>
+<div id="status"></div>
+<div id="result"></div>
+
+<script>
+const statusEl = document.getElementById('status');
+const resultEl = document.getElementById('result');
+const btn = document.getElementById('go');
+
+async function poll(jobId) {
+  for (let i = 0; i < 200; i++) {
+    const r = await fetch(`/jobs/${jobId}`).then(r => r.json());
+    statusEl.textContent = `Status: ${r.status}`;
+    if (r.status === 'done') return r.run_id;
+    if (r.status === 'error') throw new Error(r.error || 'analysis failed');
+    await new Promise(res => setTimeout(res, 3000));
+  }
+  throw new Error('timed out waiting for job');
+}
+
+btn.onclick = async () => {
+  const name = document.getElementById('name').value.trim();
+  const apiKey = document.getElementById('apikey').value.trim();
+  if (!name) return;
+  btn.disabled = true; resultEl.innerHTML = ''; statusEl.textContent = 'Submitting…';
+  try {
+    const sub = await fetch('/targets', {
+      method: 'POST', headers: {'Content-Type': 'application/json', ...(apiKey ? {'X-API-Key': apiKey} : {})}, body: JSON.stringify({name})
+    }).then(r => r.json());
+    const runId = await poll(sub.job_id);
+    const run = await fetch(`/runs/${runId}`).then(r => r.json());
+    statusEl.textContent = 'Done.';
+    resultEl.innerHTML = `
+      <div class="card">
+        <h3>${run.target}</h3>
+        <div class="links">
+          <a href="/runs/${runId}/plot.png" target="_blank">Plot (PNG)</a>
+          <a href="/runs/${runId}/report.pdf" target="_blank">Report (PDF)</a>
+          <a href="/runs/${runId}/export.csv">CSV</a>
+          <a href="/runs/${runId}/export.fits">FITS</a>
+          <a href="/runs/${runId}/export.json">JSON</a>
+        </div>
+        <pre>${JSON.stringify(run, null, 2)}</pre>
+      </div>`;
+  } catch (e) {
+    statusEl.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
+</script>
+</body>
+</html>
